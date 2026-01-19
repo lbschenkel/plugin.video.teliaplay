@@ -295,233 +295,230 @@ def login_service():
         xbmcgui.Dialog().notification(localized(30012), localized(30006))
     return False
 
-def login_data(reconnect, retry=0):
-    dashjs, tv_client_boot_id, timestamp, sessionid = create_data()
-
-    try:
-        url = 'https://log.tvoip.telia.com:6003/logstash'
-
-        headers = {
-            'host': 'log.tvoip.telia.com:6003',
-            'user-agent': UA,
-            'content-type': 'text/plain;charset=UTF-8',
-            'accept': '*/*',
-            'origin': base[country],
-            'referer': referer[country],
-            'accept-language': 'en-US,en;q=0.9',
-        }
-
-        data = {
-            'bootId': tv_client_boot_id,
-            'networkType': 'UNKNOWN',
-            'deviceId': dashjs,
-            'deviceType': 'WEB',
-            'model': 'unknown_model',
-            'productName': 'Microsoft Edge 101.0.1210.32',
-            'platformName': 'Windows',
-            'platformVersion': 'NT 10.0',
-            'nativeVersion': 'unknown_platformVersion',
-            'uiName': 'one-web-login',
-            'client': 'WEB',
-            'uiVersion': '1.35.0',
-            'environment': 'PROD',
-            'country': ca[country],
-            'brand': 'TELIA',
-            'logType': 'STATISTICS_HTTP',
-            'payloads': [{
-                'sequence': 1,
-                'timestamp': timestamp,
-                'level': 'ERROR',
-                'loggerId': 'telia-data-backend/System',
-                'message': 'Failed to get service status due to timeout after 1000 ms'
-                }]
+def login_do_refresh(country, device_id, tv_client_boot_id):
+    refrtoken = addon.getSetting('teliaplay_refrtoken')
+    if refrtoken:
+        try:
+            url = 'https://logingateway.teliaplay.se/logingateway/rest/v1/login/refresh'
+            headers = {
+                'accept-language': 'sv,en;q=0.9,en-GB;q=0.8,en-US;q=0.7,pl;q=0.6,fr;q=0.5',
+                'dnt': '1',
+                'origin': base[country],
+                'referer': referer[country],
+                'user-agent': UA,
+                'x-country': ca[country],
+                'accept': 'application/json',
+                'tv-client-boot-id': tv_client_boot_id,
+                'tv-client-name': 'web',
             }
+            data = {
+                'deviceId': device_id,
+                'deviceType': 'WEB',
+                'refreshToken': refrtoken,
+            }
+            response = send_req(url, post=True, params=params, headers=headers, json=data, verify=True, timeout=timeouts)
+            if response:
+                j_response = response.json()
+                
+                validTo = j_response.get('validTo', '')
+                beartoken = j_response.get('accessToken', '')
+                refrtoken = j_response.get('refreshToken', '')
+                
+                if validTo and beartoken and refrtoken:
+                    addon.setSetting('teliaplay_validto', str(validTo))
+                    addon.setSetting('teliaplay_beartoken', str(beartoken))
+                    addon.setSetting('teliaplay_refrtoken', str(refrtoken))
+                    return True
+        except Exception as ex:
+            print('Could not refresh token: {}'.format(ex))
+    
+    return False
 
-        response = send_req(url, post=True, headers=headers, json=data, verify=True, timeout=timeouts)
-
-        url = 'https://logingateway-telia.clientapi-prod.live.tv.telia.net/logingateway/rest/v1/authenticate'
-
-        headers = {
-            'accept': '*/*',
-            'accept-language': 'sv,en;q=0.9,en-GB;q=0.8,en-US;q=0.7,pl;q=0.6,fr;q=0.5',
-            'dnt': '1',
-            'origin': 'https://login.teliaplay.{cc}'.format(cc=cc[country]),
-            'referer': 'https://login.teliaplay.{cc}/'.format(cc=cc[country]),
-            'user-agent': UA,
-            'x-country': ca[country],
-        }
-
-        params = {
-            'redirectUri': 'https://www.teliaplay.{cc}/'.format(cc=cc[country]),
-        }
-
-        data = {
-            'deviceId': dashjs,
-            'deviceType': 'WEB',
-            'password': password,
-            'username': login,
-            'whiteLabelBrand': 'TELIA',
-        }
-
-        response = send_req(url, post=True, headers=headers, json=data, params=params, verify=True, timeout=timeouts)
-
-        code = ''
-
-        if not response:
-            xbmcgui.Dialog().notification(localized(30012), localized(30006))
-            return False
-
+def login_do_authenticate(login, password, country, device_id):
+    url = 'https://logingateway-telia.clientapi-prod.live.tv.telia.net/logingateway/rest/v1/authenticate'
+    headers = {
+        'accept': '*/*',
+        'accept-language': 'sv,en;q=0.9,en-GB;q=0.8,en-US;q=0.7,pl;q=0.6,fr;q=0.5',
+        'dnt': '1',
+        'origin': 'https://login.teliaplay.{cc}'.format(cc=cc[country]),
+        'referer': 'https://login.teliaplay.{cc}/'.format(cc=cc[country]),
+        'user-agent': UA,
+        'x-country': ca[country],
+    }
+    params = {
+        'redirectUri': 'https://www.teliaplay.{cc}/'.format(cc=cc[country]),
+    }
+    data = {
+        'deviceId': device_id,
+        'deviceType': 'WEB',
+        'password': password,
+        'username': login,
+        'whiteLabelBrand': 'TELIA',
+    }
+    response = send_req(url, post=True, headers=headers, json=data, params=params, verify=True, timeout=timeouts)
+    if response:
         j_response = response.json()
         code = j_response['redirectUri'].replace('https://www.teliaplay.{cc}/?code='.format(cc=cc[country]), '')
+        return code
+    
+    return None
 
-        url = 'https://logingateway-telia.clientapi-prod.live.tv.telia.net/logingateway/rest/v1/oauth/token'
-
-        headers = {
-            'accept-language': 'sv,en;q=0.9,en-GB;q=0.8,en-US;q=0.7,pl;q=0.6,fr;q=0.5',
-            'dnt': '1',
-            'origin': base[country],
-            'referer': referer[country],
-            'user-agent': UA,
-            'x-country': ca[country],
-            'accept': 'application/json',
-            'tv-client-boot-id': tv_client_boot_id,
-            'tv-client-name': 'web',
-        }
-
-        params = {
-            'code': code,
-        }
-
-        response = send_req(url, post=True, params=params, headers=headers, timeout=timeouts)
-
-        if not response:
-            if reconnect and retry < 3:
-                retry += 1
-                login_data(reconnect=True, retry=retry)
-            else:
-                xbmcgui.Dialog().notification(localized(30012), localized(30007))
-                return False
-
+def login_do_get_tokens(code, country, tv_client_boot_id):
+    url = 'https://logingateway-telia.clientapi-prod.live.tv.telia.net/logingateway/rest/v1/oauth/token'
+    headers = {
+        'accept-language': 'sv,en;q=0.9,en-GB;q=0.8,en-US;q=0.7,pl;q=0.6,fr;q=0.5',
+        'dnt': '1',
+        'origin': base[country],
+        'referer': referer[country],
+        'user-agent': UA,
+        'x-country': ca[country],
+        'accept': 'application/json',
+        'tv-client-boot-id': tv_client_boot_id,
+        'tv-client-name': 'web',
+    }
+    params = {
+        'code': code,
+    }
+    response = send_req(url, post=True, params=params, headers=headers, timeout=timeouts)
+    if response:
         j_response = response.json()
-
         try:
             if 'Username/password was incorrect' in j_response['errorMessage']:
                 xbmcgui.Dialog().notification(localized(30012), localized(30007))
-                return False
+                return None
         except:
             pass
 
         validTo = j_response.get('validTo', '')
-        addon.setSetting('teliaplay_validto', str(validTo))
-
         beartoken = j_response.get('accessToken', '')
-        addon.setSetting('teliaplay_beartoken', str(beartoken))
-
         refrtoken = j_response.get('refreshToken', '')
+
+        addon.setSetting('teliaplay_validto', str(validTo))
+        addon.setSetting('teliaplay_beartoken', str(beartoken))
         addon.setSetting('teliaplay_refrtoken', str(refrtoken))
 
-        url = 'https://ottapi.prod.telia.net/web/{cc}/tvclientgateway/rest/secure/v1/provision'.format(cc=cc[country])
+        return True
 
-        headers = {
-            'host': 'ottapi.prod.telia.net',
-            'authorization': 'Bearer ' + beartoken,
-            'if-modified-since': '0',
-            'user-agent': UA,
-            'tv-client-boot-id': tv_client_boot_id,
-            'content-type': 'application/json',
-            'accept': '*/*',
-            'sec-GPC': '1',
-            'origin': base[country],
-            'referer': referer[country],
-            'accept-language': 'en-US,en;q=0.9',
-        }
+    return False
 
-        data = {
-            'deviceId': dashjs,
-            'drmType': 'WIDEVINE',
-            'uiName': 'one-web',
-            'uiVersion': '1.43.0',
-            'nativeVersion': 'NT 10.0',
-            'model': 'windows_desktop',
-            'networkType': 'unknown',
-            'productName': 'Microsoft Edge 101.0.1210.32',
-            'platformName': 'Windows',
-            'platformVersion': 'NT 10.0',
-        }
+# def login_do_provision(beartoken, reconnect, country, device_id, tv_client_boot_id):
+#     url = 'https://ottapi.prod.telia.net/web/{cc}/tvclientgateway/rest/secure/v1/provision'.format(cc=cc[country])
+#     headers = {
+#         'host': 'ottapi.prod.telia.net',
+#         'authorization': 'Bearer ' + beartoken,
+#         'if-modified-since': '0',
+#         'user-agent': UA,
+#         'tv-client-boot-id': tv_client_boot_id,
+#         'content-type': 'application/json',
+#         'accept': '*/*',
+#         'sec-GPC': '1',
+#         'origin': base[country],
+#         'referer': referer[country],
+#         'accept-language': 'en-US,en;q=0.9',
+#     }
+#     data = {
+#         'deviceId': device_id,
+#         'drmType': 'WIDEVINE',
+#         'uiName': 'one-web',
+#         'uiVersion': '1.43.0',
+#         'nativeVersion': 'NT 10.0',
+#         'model': 'windows_desktop',
+#         'networkType': 'unknown',
+#         'productName': 'Microsoft Edge 101.0.1210.32',
+#         'platformName': 'Windows',
+#         'platformVersion': 'NT 10.0',
+#     }
+#     response = send_req(url, post=True, headers=headers, json=data, verify=True, timeout=timeouts)
+#     if response:
+#         response = response.json()
+#         if response.get('errorCode') == 61004:
+#             print('errorCode 61004')
+#             xbmcgui.Dialog().notification(localized(30012), localized(30013))
+#             addon.setSetting('teliaplay_sess_id', '')
+#             addon.setSetting('teliaplay_devush', '')
+#             return False
+#         elif response.get('errorCode') == 9030:
+#             print('errorCode 9030')
+#             if not reconnect:
+#                 xbmcgui.Dialog().notification(localized(30012), localized(30006))
+#             addon.setSetting('teliaplay_sess_id', '')
+#             addon.setSetting('teliaplay_devush', '')
+#             return False
+#         elif response.get('errorCode') == 61002:
+#             print('errorCode 61002')
+#             if not reconnect:
+#                 xbmcgui.Dialog().notification(localized(30012), localized(30006))
+#             tv_client_boot_id = str(uuid.uuid4())
+#             addon.setSetting('teliaplay_tv_client_boot_id', str(tv_client_boot_id))
+#             return False
 
-        response = send_req(url, post=True, headers=headers, json=data, verify=True, timeout=timeouts)
+#     addon.setSetting('teliaplay_cookies', str(sess.cookies))
+#     return True
 
-        try:
-            response = response.json()
-            if response['errorCode'] == 61004:
-                print('errorCode 61004')
-                xbmcgui.Dialog().notification(localized(30012), localized(30013))
-                addon.setSetting('teliaplay_sess_id', '')
-                addon.setSetting('teliaplay_devush', '')
-                if reconnect and retry < 1:
-                    retry += 1
-                    login_data(reconnect=True, retry=retry)
-                else:
-                    return False
+def login_do_pubsub(cookies, beartoken, country, tv_client_boot_id):
+    url = 'https://ottapi.prod.telia.net/web/{cc}/tvclientgateway/rest/secure/v1/pubsub'.format(cc=cc[country])
+    headers = {
+        'user-agent': UA,
+        'accept': '*/*',
+        'accept-language': "sv,en;q=0.9,en-GB;q=0.8,en-US;q=0.7,pl;q=0.6",
+        'authorization': 'Bearer ' + beartoken,
+        'tv-client-boot-id': tv_client_boot_id,
+    }
+    response = send_req(url, headers=headers, cookies=cookies, allow_redirects=False, timeout=timeouts)
+    if response:
+        response = response.json()
 
-            elif response['errorCode'] == 9030:
-                print('errorCode 9030')
-                if not reconnect:
-                    xbmcgui.Dialog().notification(localized(30012), localized(30006))
-                addon.setSetting('teliaplay_sess_id', '')
-                addon.setSetting('teliaplay_devush', '')
-                if reconnect and retry < 1:
-                    retry += 1
-                    login_data(reconnect=True, retry=retry)
-                else:
-                    return False
+        usern = response['channels']['engagement']
+        subtoken = response['config']['subscriberToken']
 
-            elif response['errorCode'] == 61002:
-                print('errorCode 61002')
-                if not reconnect:
-                    xbmcgui.Dialog().notification(localized(30012), localized(30006))
-                tv_client_boot_id = str(uuid.uuid4())
-                addon.setSetting('teliaplay_tv_client_boot_id', str(tv_client_boot_id))
-                if reconnect and retry < 1:
-                    retry += 1
-                    login_data(reconnect=True, retry=retry)
-                else:
-                    return False
+        addon.setSetting('teliaplay_usern', str(usern))
+        addon.setSetting('teliaplay_subtoken', str(subtoken))
 
-        except:
-            pass
+        return True
 
-        cookies = {}
+    return False
 
-        cookies = sess.cookies
+
+def login_data(reconnect, retry=0):
+    dashjs, tv_client_boot_id, timestamp, sessionid = create_data()
+
+    if login_do_refresh(country, dashjs, tv_client_boot_id):
+        return True
+    
+    try:
+        code = login_do_authenticate(login, password, country, dashjs)
+        if not code:
+            xbmcgui.Dialog().notification(localized(30012), localized(30006))
+            return False
+
+        if not login_do_get_tokens(code, country, tv_client_boot_id):
+            if reconnect and retry < 3:
+                retry += 1
+                login_data(reconnect=True, retry=retry)
+            else:
+                xbmcgui.Dialog().notification(localized(30012), localized(30007))
+                return False
+
+        validTo = addon.getSetting('teliaplay_validto')
+        beartoken = addon.getSetting('teliaplay_beartoken')
+        refrtoken = addon.getSetting('teliaplay_refrtoken')
+
+        # if not login_do_provision(beartoken, reconnect, country, dashjs, tv_client_boot_id):
+        #     if reconnect and retry < 1:
+        #         retry += 1
+        #         login_data(reconnect=True, retry=retry)
+        #     else:
+        #         return False
+
+        cookies  = sess.cookies
         addon.setSetting('teliaplay_cookies', str(cookies))
 
-        url = 'https://ottapi.prod.telia.net/web/{cc}/tvclientgateway/rest/secure/v1/pubsub'.format(cc=cc[country])
-
-        headers = {
-            'user-agent': UA,
-            'accept': '*/*',
-            'accept-language': "sv,en;q=0.9,en-GB;q=0.8,en-US;q=0.7,pl;q=0.6",
-            'authorization': 'Bearer ' + beartoken,
-            'tv-client-boot-id': tv_client_boot_id,
-        }
-
-        response = send_req(url, headers=headers, cookies=sess.cookies, allow_redirects=False, timeout=timeouts)
-
-        if not response:
+        if not login_do_pubsub(cookies, beartoken, country, tv_client_boot_id):
             if reconnect and retry < 3:
                 retry += 1
                 login_data(reconnect=True, retry=retry)
             else:
                 return False
-
-        response = response.json()
-
-        usern = response['channels']['engagement']
-        addon.setSetting('teliaplay_usern', str(usern))
-
-        subtoken = response['config']['subscriberToken']
-        addon.setSetting('teliaplay_subtoken', str(subtoken))
 
         return True
 
