@@ -1810,7 +1810,7 @@ def get_stream(exlink, catchup_type):
         if catchup_type == 'LIVE':
             stream_type = 'CHANNEL'
 
-            url = 'https://streaminggateway-telia.clientapi-prod.live.tv.telia.net/streaminggateway/rest/secure/v2/streamingticket/{type}/{exlink}?country={cc}'.format(type=stream_type, exlink=(str(exlink)), cc=ca[country])
+            url = 'https://streaminggateway.clientapi-prod.live.tv.telia.net/streaminggateway/rest/secure/v2/streamingticket/{type}/{exlink}?country={cc}'.format(type=stream_type, exlink=(str(exlink)), cc=ca[country])
 
             headers = {
                 'connection': 'keep-alive',
@@ -1859,7 +1859,7 @@ def get_stream(exlink, catchup_type):
         else:
             stream_type = 'MEDIA'
 
-            url = 'https://streaminggateway-telia.clientapi-prod.live.tv.telia.net/streaminggateway/rest/secure/v2/streamingticket/{type}/{exlink}?country={cc}'.format(type=stream_type, exlink=(str(exlink)), cc=ca[country])
+            url = 'https://streaminggateway.clientapi-prod.live.tv.telia.net/streaminggateway/rest/secure/v2/streamingticket/{type}/{exlink}?country={cc}'.format(type=stream_type, exlink=(str(exlink)), cc=ca[country])
 
             headers = {
                 'Connection': 'keep-alive',
